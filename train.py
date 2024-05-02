@@ -24,7 +24,7 @@ from utils import (
 # Hyperparameters
 LEARNING_RATE = 1e-5
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 8
+BATCH_SIZE = 4
 NUM_EPOCHS = 25
 NUM_WORKERS = 2
 IMAGE_HEIGHT = 128  # 690 originally
@@ -44,7 +44,8 @@ def train_fn(loader, model, optimizer, loss_fn, scaler):
 
     for batch_idx, (data, targets) in enumerate(loop):
         data = data.to(device=DEVICE)
-        targets = targets.to(device=DEVICE)
+        # targets = targets.to(device=DEVICE)
+        targets = targets.float().unsqueeze(1).to(device=DEVICE)
 
         # forward
         with torch.cuda.amp.autocast():
@@ -72,7 +73,8 @@ def evaluate_fn(loader, model, loss_fn):
     with torch.no_grad():
         for data, targets in loader:
             data = data.to(device=DEVICE)
-            targets = targets.to(device=DEVICE)
+            # targets = targets.to(device=DEVICE)
+            targets = targets.float().unsqueeze(1).to(device=DEVICE)
 
             preds = torch.sigmoid(model(data))
             preds = (preds > 0.5).float()
@@ -86,39 +88,36 @@ def evaluate_fn(loader, model, loss_fn):
 def main():
     wandb.login(key="12b9b358323faf2af56dc288334e6247c1e8bc63")
     wandb.init(project="seg_unet")
-    # train_transform = A.Compose(
-    #     [
-    #         A.Resize(height=IMAGE_HEIGHT, width=IMAGE_WIDTH),
-    #         A.Rotate(limit=35, p=1.0),
-    #         A.HorizontalFlip(p=0.5),
-    #         A.VerticalFlip(p=0.1),
-    #         A.Normalize(mean=[0.0], std=[1.0], ),
-    #         ToTensorV2(),
-    #     ],
-    # )
-    #
-    # val_transform = A.Compose(
-    #     [
-    #         A.Resize(height=IMAGE_HEIGHT, width=IMAGE_WIDTH),
-    #         # ScaleToRange(min_val, max_val),
-    #         A.Normalize(mean=[0.0], std=[1.0], ),
-    #         # CustomNormalize(min_val, max_val),
-    #         # transforms.ToTensor(),
-    #         ToTensorV2(),
-    #     ],
-    # )
-    train_transform = transforms.Compose([
-        transforms.Resize((IMAGE_HEIGHT, IMAGE_WIDTH)),
-        transforms.RandomRotation(35),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomVerticalFlip(),
-        transforms.ToTensor(),
-    ])
+    train_transform = A.Compose(
+        [
+            A.Resize(height=IMAGE_HEIGHT, width=IMAGE_WIDTH),
+            A.Rotate(limit=35, p=1.0),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.1),
+            A.Normalize(mean=[0.0], std=[1.0], ),
+            ToTensorV2(),
+        ],
+    )
 
-    val_transform = transforms.Compose([
-        transforms.Resize((IMAGE_HEIGHT, IMAGE_WIDTH)),
-        transforms.ToTensor(),
-    ])
+    val_transform = A.Compose(
+        [
+            A.Resize(height=IMAGE_HEIGHT, width=IMAGE_WIDTH),
+            A.Normalize(mean=[0.0], std=[1.0], ),
+            ToTensorV2(),
+        ],
+    )
+    # train_transform = transforms.Compose([
+    #     transforms.Resize((IMAGE_HEIGHT, IMAGE_WIDTH)),
+    #     transforms.RandomRotation(35),
+    #     transforms.RandomHorizontalFlip(),
+    #     transforms.RandomVerticalFlip(),
+    #     transforms.ToTensor(),
+    # ])
+    #
+    # val_transform = transforms.Compose([
+    #     transforms.Resize((IMAGE_HEIGHT, IMAGE_WIDTH)),
+    #     transforms.ToTensor(),
+    # ])
 
     model = UNET(in_channels=3, out_channels=1).to(DEVICE)
     criterion = nn.BCEWithLogitsLoss()  # nn.CrossEntropyLoss()
@@ -137,7 +136,7 @@ def main():
     )
 
     if LOAD_MODEL:
-        load_checkpoint(torch.load("my_checkpoint1.pth.tar"), model)
+        load_checkpoint(torch.load("my_checkpoint.pth.tar"), model)
 
     # check_accuracy(val_loader, model, device=DEVICE)
     scaler = torch.cuda.amp.GradScaler()
@@ -157,7 +156,7 @@ def main():
             "state_dict": model.state_dict(),
             "optimizer": optimizer.state_dict(),
         }
-        save_checkpoint(checkpoint, filename="my_checkpoint1.pth.tar")
+        save_checkpoint(checkpoint, filename="my_checkpoint.pth.tar")
 
         # check accuracy
         check_accuracy(val_loader, model, device=DEVICE)
@@ -212,10 +211,17 @@ def main():
 
 
 def t_images():
-    test_transform = transforms.Compose([
-        transforms.Resize((IMAGE_HEIGHT, IMAGE_WIDTH)),
-        transforms.ToTensor(),
-    ])
+    test_transform = A.Compose(
+        [
+            A.Resize(height=IMAGE_HEIGHT, width=IMAGE_WIDTH),
+            A.Normalize(mean=[0.0], std=[1.0], ),
+            ToTensorV2(),
+        ],
+    )
+    # test_transform = transforms.Compose([
+    #     transforms.Resize((IMAGE_HEIGHT, IMAGE_WIDTH)),
+    #     transforms.ToTensor(),
+    # ])
     model = UNET(in_channels=3, out_channels=1).to(DEVICE)
 
     test_ds = Fluo_N2DH_SIM_PLUS(

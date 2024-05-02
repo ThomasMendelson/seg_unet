@@ -67,7 +67,8 @@ def check_accuracy(loader, model, device="cuda"):
     with torch.no_grad():
         for x, y in loader:
             x = x.to(device)
-            y = y.to(device)
+            # y = y.to(device)
+            y = y.to(device).unsqueeze(1)
             preds = torch.sigmoid(model(x))
             preds = (preds > 0.5).float()
             num_correct += (preds == y).sum()
@@ -96,7 +97,8 @@ def save_predictions_as_imgs(
         )
         # os.makedirs("C:\\BGU\\u-net_seg\\Fluo-N2DH-SIM+_training-datasets\\saved\\", exist_ok=True)
         # torchvision.utils.save_image(y.unsqueeze(1), f"{folder}/{idx}.png")
-        torchvision.utils.save_image(y, f"{folder}/{idx}.png")
+        # torchvision.utils.save_image(y, f"{folder}/{idx}.png")
+        torchvision.utils.save_image(y.unsqueeze(1), f"{folder}/{idx}.png")
 
     model.train()
 
@@ -116,8 +118,8 @@ def save_test_predictions_as_imgs(
             torchvision.utils.save_image(
                 preds, f"{folder}/pred_{idx}.png"
             )
-            # torchvision.utils.save_image(y.unsqueeze(1), f"{folder}/{idx}.png")
-            torchvision.utils.save_image(y, f"{folder}/{idx}.png")
+            torchvision.utils.save_image(y.unsqueeze(1), f"{folder}/{idx}.png")
+            # torchvision.utils.save_image(y, f"{folder}/{idx}.png")
 
     else:
         for idx, x in enumerate(loader):
