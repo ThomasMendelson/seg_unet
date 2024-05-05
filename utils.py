@@ -122,6 +122,9 @@ def save_test_predictions_as_imgs(
             # torchvision.utils.save_image(y, f"{folder}/{idx}.png")
 
     else:
+        num_correct = 0
+        num_pixels = 0
+        dice_score = 0
         for idx, x in enumerate(loader):
             x = x.to(device=device, dtype=torch.float32)
             with torch.no_grad():
@@ -131,4 +134,14 @@ def save_test_predictions_as_imgs(
             torchvision.utils.save_image(
                 preds, f"{folder}/pred_{idx}.png"
             )
+            # x = torch.where(x > 0, torch.tensor(1.0), torch.tensor(0.0))
+            # torchvision.utils.save_image(x, f"{folder}/x_{idx}.png")
+            # num_correct += (preds == x).sum()
+            # num_pixels += torch.numel(preds)
+            # dice_score += (2 * (preds * x).sum()) / ((preds + x).sum() + 1e-8)
+
+        # print(
+        #     f"Got {num_correct}/{num_pixels} with acc {num_correct / num_pixels * 100:.2f}%"
+        # )
+        # print(f"Dice score: {dice_score / len(loader)}")
     model.train()

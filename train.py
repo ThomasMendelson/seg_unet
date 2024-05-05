@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -25,12 +26,12 @@ from utils import (
 LEARNING_RATE = 1e-5
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 4
-NUM_EPOCHS = 25
+NUM_EPOCHS = 1
 NUM_WORKERS = 2
 IMAGE_HEIGHT = 128  # 690 originally
 IMAGE_WIDTH = 128  # 628 originally
 PIN_MEMORY = True
-LOAD_MODEL = False
+LOAD_MODEL = True
 TRAIN_IMG_DIR = "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/02"
 TRAIN_MASK_DIR = "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/02_ERR_SEG"
 VAL_IMG_DIR = "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/01"
@@ -86,8 +87,8 @@ def evaluate_fn(loader, model, loss_fn):
 
 
 def main():
-    wandb.login(key="12b9b358323faf2af56dc288334e6247c1e8bc63")
-    wandb.init(project="seg_unet")
+    # wandb.login(key="12b9b358323faf2af56dc288334e6247c1e8bc63")
+    # wandb.init(project="seg_unet")
     train_transform = A.Compose(
         [
             A.Resize(height=IMAGE_HEIGHT, width=IMAGE_WIDTH),
@@ -136,7 +137,7 @@ def main():
     )
 
     if LOAD_MODEL:
-        load_checkpoint(torch.load("my_checkpoint.pth.tar"), model)
+        load_checkpoint(torch.load("../my_checkpoint.pth.tar", map_location=torch.device(DEVICE)), model)
 
     # check_accuracy(val_loader, model, device=DEVICE)
     scaler = torch.cuda.amp.GradScaler()
@@ -149,14 +150,14 @@ def main():
 
         val_loss = evaluate_fn(val_loader, model, criterion)
         # wandb.log({"Val Loss": val_loss})
-        wandb.log({"Train Loss": train_loss, "Val Loss": val_loss})
+        # wandb.log({"Train Loss": train_loss, "Val Loss": val_loss})
 
         # save model
         checkpoint = {
             "state_dict": model.state_dict(),
             "optimizer": optimizer.state_dict(),
         }
-        save_checkpoint(checkpoint, filename="my_checkpoint.pth.tar")
+        save_checkpoint(checkpoint, filename="../my_checkpoint.pth.tar")
 
         # check accuracy
         check_accuracy(val_loader, model, device=DEVICE)
@@ -164,7 +165,7 @@ def main():
         # print some examples to a folder
         save_predictions_as_imgs(val_loader, model, device=DEVICE)
 
-    wandb.finish()
+    # wandb.finish()
 
 
 # def t_acc():
@@ -202,7 +203,7 @@ def main():
 #     )
 #
 #     if LOAD_MODEL:
-#         load_checkpoint(torch.load("my_checkpoint.pth.tar"), model)
+#         load_checkpoint(torch.load("../my_checkpoint.pth.tar", map_location=torch.device(DEVICE)), model)
 #
 #     check_accuracy(val_loader, model, device=DEVICE)
 #     save_predictions_as_imgs(
@@ -225,7 +226,7 @@ def t_images():
     model = UNET(in_channels=3, out_channels=1).to(DEVICE)
 
     test_ds = Fluo_N2DH_SIM_PLUS(
-        image_dir=r"C:\BGU\seg_unet\Fluo-N2DH-SIM+_tset-datasets\Fluo-N2DH-SIM+\02",
+        image_dir=r"C:\BGU\u-net_seg\seg_unet\Fluo-N2DH-SIM+_tset-datasets\Fluo-N2DH-SIM+\02",
         transform=test_transform,
     )
 
@@ -237,15 +238,15 @@ def t_images():
         shuffle=False,
     )
 
-    load_checkpoint(torch.load("my_checkpoint.pth.tar"), model)
+    load_checkpoint(torch.load("../my_checkpoint_last_one.pth.tar", map_location=torch.device(DEVICE)), model)
 
     save_test_predictions_as_imgs(
-        test_loader, model, folder=r"C:\BGU\seg_unet\Fluo-N2DH-SIM+_tset-datasets\Fluo-N2DH-SIM+\saved\02",
-        device="cpu", type="test"
+        test_loader, model, folder=r"C:\BGU\u-net_seg\seg_unet\Fluo-N2DH-SIM+_tset-datasets\Fluo-N2DH-SIM+\saved\02",
+        device=DEVICE, type="test"
     )
 
 
 if __name__ == "__main__":
-    main()
+    # main()
     # t_acc()
-    # t_images()
+    t_images()
