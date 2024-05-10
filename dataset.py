@@ -20,26 +20,57 @@ class Fluo_N2DH_SIM_PLUS(Dataset):
             mask_path = os.path.join(self.mask_dir, self.images[index].replace("t", "mask", 1))
             image = np.array(Image.open(img_path).convert("RGB"))
             mask = np.array(Image.open(mask_path).convert("L"), dtype=np.float32)
-            mask[mask > 0] = 1.0
-            # image = np.transpose(image, (2, 0, 1))
     
             if self.transform is not None:
                 augmentations = self.transform(image=image, mask=mask)
                 image = augmentations["image"]
                 mask = augmentations["mask"]
-            print(f"in dataset, image: {image.size()} mask: {mask.size()}")
+                # mask = Fluo_N2DH_SIM_PLUS.split_mask(mask)
+
             return image, mask
         else:
             img_path = os.path.join(self.image_dir, self.images[index])
             image = np.array(Image.open(img_path).convert("RGB"))
-            # image = np.transpose(image, (2, 0, 1))
-            # image = np.transpose(image, (0, 3, 1, 2))
+
             if self.transform is not None:
                 augmentations = self.transform(image=image)
                 image = augmentations["image"]
-            # print(f"in dataset, image: {image.size()} ")
+
             return image
-    # def __getitem__(self, index):
+
+    @staticmethod
+    def detect_edges(mask, threshold=0.25):
+        # Compute the gradients along rows and columns
+        gradient_x = np.gradient(mask.astype(float), axis=1)
+        gradient_y = np.gradient(mask.astype(float), axis=0)
+
+        # Extract gradient components from the tuple
+        gradient_x = gradient_x[0]
+        gradient_y = gradient_y[0]
+
+        gradient_magnitude = np.sqrt(gradient_x ** 2 + gradient_y ** 2)
+        masked_gradient_magnitude = gradient_magnitude * mask
+        edge_mask = (masked_gradient_magnitude > threshold).astype(int)
+
+        return edge_mask
+
+    @staticmethod
+    def split_mask(mask):
+        three_classes_mask = torch.zeros_like(mask, dtype=torch.int32)
+        unique_elements = torch.unique(mask.flatten())
+        for element in unique_elements:
+            if element != 0:
+                element_mask = (mask == element).to(torch.int)
+                edges = Fluo_N2DH_SIM_PLUS.detect_edges(element_mask)
+                element_mask -= edges
+                three_classes_mask[edges == 1] = 1
+                three_classes_mask[element_mask == 1] = 2
+
+        return three_classes_mask
+
+
+
+        # def __getitem__(self, index):
     #     img_name = self.images[index]
     #     img_path = os.path.join(self.image_dir, img_name)
     #     image = Image.open(img_path).convert("RGB")

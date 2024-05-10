@@ -46,7 +46,8 @@ def train_fn(loader, model, optimizer, loss_fn, scaler):
     for batch_idx, (data, targets) in enumerate(loop):
         data = data.to(device=DEVICE)
         # targets = targets.to(device=DEVICE)
-        targets = targets.float().unsqueeze(1).to(device=DEVICE)
+        # targets = targets.float().unsqueeze(1).to(device=DEVICE)
+        targets = Fluo_N2DH_SIM_PLUS.split_mask(targets).long().to(device=DEVICE)
 
         # forward
         with torch.cuda.amp.autocast():
@@ -75,8 +76,9 @@ def evaluate_fn(loader, model, loss_fn):
         for data, targets in loader:
             data = data.to(device=DEVICE)
             # targets = targets.to(device=DEVICE)
-            targets = targets.float().unsqueeze(1).to(device=DEVICE)
+            # targets = targets.float().unsqueeze(1).to(device=DEVICE)
 
+            targets = Fluo_N2DH_SIM_PLUS.split_mask(targets).long().to(device=DEVICE)
             preds = torch.sigmoid(model(data))
             preds = (preds > 0.5).float()
             loss = loss_fn(preds, targets)
@@ -121,7 +123,8 @@ def main():
     # ])
 
     model = UNET(in_channels=3, out_channels=1).to(DEVICE)
-    criterion = nn.BCEWithLogitsLoss()  # nn.CrossEntropyLoss()
+    # criterion = nn.BCEWithLogitsLoss()  # nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     train_loader, val_loader = get_loaders(
@@ -146,11 +149,9 @@ def main():
         print(f"epoch: [{epoch + 1}/{NUM_EPOCHS}]")
 
         train_loss = train_fn(train_loader, model, optimizer, criterion, scaler)
-        # wandb.log({"Train Loss": train_loss})
-
         val_loss = evaluate_fn(val_loader, model, criterion)
-        # wandb.log({"Val Loss": val_loss})
-        # wandb.log({"Train Loss": train_loss, "Val Loss": val_loss})
+
+        wandb.log({"Train Loss": train_loss, "Val Loss": val_loss})
 
         # save model
         checkpoint = {
