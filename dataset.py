@@ -41,30 +41,31 @@ class Fluo_N2DH_SIM_PLUS(Dataset):
     @staticmethod
     def detect_edges(mask, threshold=0.25):
         # Compute the gradients along rows and columns
-        gradient_x = np.gradient(mask.astype(float), axis=1)
-        gradient_y = np.gradient(mask.astype(float), axis=0)
+        gradient_x = torch.gradient(mask, dim=1)
+        gradient_y = torch.gradient(mask, dim=0)
 
         # Extract gradient components from the tuple
         gradient_x = gradient_x[0]
         gradient_y = gradient_y[0]
 
-        gradient_magnitude = np.sqrt(gradient_x ** 2 + gradient_y ** 2)
+        gradient_magnitude = torch.sqrt(gradient_x ** 2 + gradient_y ** 2)
         masked_gradient_magnitude = gradient_magnitude * mask
-        edge_mask = (masked_gradient_magnitude > threshold).astype(int)
+        edge_mask = (masked_gradient_magnitude > threshold).to(torch.int)
 
         return edge_mask
 
     @staticmethod
     def split_mask(mask):
         three_classes_mask = torch.zeros_like(mask, dtype=torch.int32)
-        unique_elements = torch.unique(mask.flatten())
-        for element in unique_elements:
-            if element != 0:
-                element_mask = (mask == element).to(torch.int)
-                edges = Fluo_N2DH_SIM_PLUS.detect_edges(element_mask)
-                element_mask -= edges
-                three_classes_mask[edges == 1] = 1
-                three_classes_mask[element_mask == 1] = 2
+        for batch_idx in range(mask.size()[0]):
+            unique_elements = torch.unique(mask[batch_idx].flatten())
+            for element in unique_elements:
+                if element != 0:
+                    element_mask = (mask[batch_idx] == element).to(torch.int)
+                    edges = Fluo_N2DH_SIM_PLUS.detect_edges(element_mask)
+                    element_mask -= edges
+                    three_classes_mask[batch_idx][edges == 1] = 1
+                    three_classes_mask[batch_idx][element_mask == 1] = 2
 
         return three_classes_mask
 
