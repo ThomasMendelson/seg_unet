@@ -1,4 +1,5 @@
 import os
+
 import torch
 import torchvision
 from PIL import Image
@@ -36,15 +37,15 @@ def get_loaders(
         val_dir,
         val_maskdir,
         batch_size,
-        train_transform,
-        val_transform,
+        resize,
         num_workers=0,
         pin_memory=True
 ):
     train_ds = Fluo_N2DH_SIM_PLUS(
         image_dir=train_dir,
         mask_dir=train_maskdir,
-        transform=train_transform,
+        resize=resize,
+        train_aug=True
     )
 
     train_loader = DataLoader(
@@ -59,7 +60,8 @@ def get_loaders(
     val_ds = Fluo_N2DH_SIM_PLUS(
         image_dir=val_dir,
         mask_dir=val_maskdir,
-        transform=val_transform,
+        resize=resize,
+        train_aug=False
     )
 
     val_loader = DataLoader(
@@ -74,7 +76,7 @@ def get_loaders(
     return train_loader, val_loader
 
 
-# for shakeds acc:
+# shakeds:
 # def check_accuracy(loader, model, device="cuda"):
 #     three_d = False
 #     channel_axis = 4 if not three_d else 5
@@ -114,9 +116,10 @@ def check_accuracy(loader, model, device="cuda"):
         for x, y in loader:
             preds = model(x.to(device))
             predicted_classes = predict_classes(preds)
+            predicted_classes = predicted_classes.cpu().numpy()
             gt = y.numpy()
             for i in range(predicted_classes.shape[0]):
-                pred_labels_mask = get_cell_instances(predicted_classes[i].numpy())
+                pred_labels_mask = get_cell_instances(predicted_classes[i])
                 accuracy, _ = calc_SEG_measure(pred_labels_mask, gt[i])
                 seg += accuracy
                 num_iters += 1
@@ -294,6 +297,8 @@ def calc_SEG_measure(pred_labels_mask, gt_labels_mask):
     binary_masks_gt = separate_masks(gt_labels_mask)
 
     SEG_measure_array = np.zeros(len(binary_masks_gt))
+    if not binary_masks_predicted:
+        return 0, SEG_measure_array
     for i, r in enumerate(binary_masks_gt):
         # find match |R and S| > 0.5|R|
         for s in binary_masks_predicted:
