@@ -5,8 +5,10 @@ import torchvision
 from PIL import Image
 import numpy as np
 from scipy import ndimage
+import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import torchvision.utils as vutils
+from tqdm import tqdm
 from dataset import Fluo_N2DH_SIM_PLUS
 from torch.utils.data import DataLoader
 
@@ -31,75 +33,34 @@ def load_checkpoint(checkpoint, model):
         print(f"Error: Failed to load checkpoint - {str(e)}")
 
 
-def get_loaders(
-        train_dir,
-        train_maskdir,
-        val_dir,
-        val_maskdir,
+def get_loader(
+        dir,
+        maskdir,
+        train_aug,
+        shuffle,
         batch_size,
         resize,
         num_workers=0,
         pin_memory=True
 ):
-    train_ds = Fluo_N2DH_SIM_PLUS(
-        image_dir=train_dir,
-        mask_dir=train_maskdir,
+    ds = Fluo_N2DH_SIM_PLUS(
+        image_dir=dir,
+        mask_dir=maskdir,
         resize=resize,
-        train_aug=True
+        train_aug=train_aug
     )
 
-    train_loader = DataLoader(
-        train_ds,
+    loader = DataLoader(
+        ds,
         batch_size=batch_size,
         num_workers=num_workers,
         pin_memory=pin_memory,
-        shuffle=True,
+        shuffle=shuffle,
         drop_last=True
     )
 
-    val_ds = Fluo_N2DH_SIM_PLUS(
-        image_dir=val_dir,
-        mask_dir=val_maskdir,
-        resize=resize,
-        train_aug=False
-    )
+    return loader
 
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-        shuffle=False,
-        drop_last=True
-    )
-
-    return train_loader, val_loader
-
-
-# shakeds:
-# def check_accuracy(loader, model, device="cuda"):
-#     three_d = False
-#     channel_axis = 4 if not three_d else 5
-#     calc_seg_meas = seg_measure(channel_axis=channel_axis, three_d=three_d,
-#                                 foreground_class_index=2)
-#     accuracy = 0
-#     num_iters = 0
-#     model.eval()
-#     with torch.no_grad():
-#         for x, y in loader:
-#             # preds = model(x.to(device))
-#             # preds = preds.unsqueeze(1).permute(0,1,3,4,2).to(device)
-
-#             preds = apply_color_map(Fluo_N2DH_SIM_PLUS.split_mask(y).long())
-#             preds = preds.unsqueeze(1).permute(0,1,3,4,2).to(device)
-
-#             y = y.unsqueeze(1).unsqueeze(4).to(device)
-#             print(f"preds.size: {preds.size()}, gt.size: {y.size()}")
-#             accuracy += calc_seg_meas(y,preds)
-#             num_iters += 1
-#             print(accuracy)
-#     print(f"seg score: {accuracy/num_iters}")
-#     model.train()
 
 def get_cell_instances(input_np):
     strel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
@@ -109,6 +70,8 @@ def get_cell_instances(input_np):
 
 
 def check_accuracy(loader, model, device="cuda"):
+    print("=> Checking accuracy")
+    loader = tqdm(loader) #todo todelete
     seg = 0
     num_iters = 0
     model.eval()
@@ -151,6 +114,41 @@ def predict_classes(preds):
     _, predicted_classes = torch.max(preds_softmax, dim=1)  # Get the index of the maximum probability
     return predicted_classes
 
+
+def get_instance_color(image):
+    unique_labels = np.unique(image)
+    unique_labels = unique_labels[unique_labels != 0]  # Remove background label if present
+
+    # Generate a unique color for each label
+    color_map = plt.cm.get_cmap('hsv', len(unique_labels))
+
+    # Create an empty color image
+    colored_image = np.zeros((*image.shape, 3), dtype=np.uint8)
+
+    for i, label in enumerate(unique_labels):
+        color = (np.array(color_map(i)[:3]) * 255).astype(np.uint8)
+        colored_image[image == label] = color
+
+    return colored_image
+
+
+
+def save_instance_by_colors(loader, model, folder, device="cuda"):
+    print("=> saving instance images")
+    model.eval()
+    for idx, (x, y) in enumerate(loader):
+        x = x.to(device=device, dtype=torch.float32)
+        with torch.no_grad():
+            preds = model(x)
+            predicted_classes = predict_classes(preds).cpu().numpy()
+        labeled_preds =get_cell_instances(predicted_classes[0])
+        gt = y[0].cpu().numpy().astype(np.uint8)
+        colored_instance_preds = Image.fromarray(get_instance_color(labeled_preds))
+        colored_instance_gt = Image.fromarray(get_instance_color(gt))
+
+        colored_instance_preds.save(f"{folder}/pred_instances.png")
+        colored_instance_gt.save(f"{folder}/gt_instances.png")
+        break
 
 def save_predictions_as_imgs(loader, model, folder, device="cuda"):
     print("=> saving images")
@@ -212,6 +210,67 @@ def save_test_predictions_as_imgs(
             )
     model.train()
 
+def separate_masks(instance_mask):
+    unique_labels = np.unique(instance_mask)
+    unique_labels = unique_labels[unique_labels != 0]  # Remove background label if present
+
+    binary_masks = []
+
+    for label in unique_labels:
+        binary_mask = np.zeros_like(instance_mask)
+        binary_mask[instance_mask == label] = 1
+        binary_masks.append(binary_mask)
+
+    return binary_masks
+
+
+def calc_SEG_measure(pred_labels_mask, gt_labels_mask):
+    # separete labels masks to binary masks
+    binary_masks_predicted = separate_masks(pred_labels_mask)
+    binary_masks_gt = separate_masks(gt_labels_mask)
+
+    SEG_measure_array = np.zeros(len(binary_masks_gt))
+    if not binary_masks_predicted:
+        return 0, SEG_measure_array
+    for i, r in enumerate(binary_masks_gt):
+        # find match |R and S| > 0.5|R|
+        for s in binary_masks_predicted:
+            r_and_s = np.logical_and(r, s)
+            if np.sum(r_and_s) > 0.5 * np.sum(r):
+                # match !
+                break
+
+        # calc Jaccard similarity index
+        j_similarity = np.sum(r_and_s) / np.sum(np.logical_or(r, s))
+        SEG_measure_array[i] = j_similarity
+
+    SEG_measure_avg = np.average(SEG_measure_array)
+    return SEG_measure_avg, SEG_measure_array
+
+# shakeds:
+# def check_accuracy(loader, model, device="cuda"):
+#     three_d = False
+#     channel_axis = 4 if not three_d else 5
+#     calc_seg_meas = seg_measure(channel_axis=channel_axis, three_d=three_d,
+#                                 foreground_class_index=2)
+#     accuracy = 0
+#     num_iters = 0
+#     model.eval()
+#     with torch.no_grad():
+#         for x, y in loader:
+#             # preds = model(x.to(device))
+#             # preds = preds.unsqueeze(1).permute(0,1,3,4,2).to(device)
+
+#             preds = apply_color_map(Fluo_N2DH_SIM_PLUS.split_mask(y).long())
+#             preds = preds.unsqueeze(1).permute(0,1,3,4,2).to(device)
+
+#             y = y.unsqueeze(1).unsqueeze(4).to(device)
+#             print(f"preds.size: {preds.size()}, gt.size: {y.size()}")
+#             accuracy += calc_seg_meas(y,preds)
+#             num_iters += 1
+#             print(accuracy)
+#     print(f"seg score: {accuracy/num_iters}")
+#     model.train()
 
 # def seg_measure(channel_axis, three_d=False, foreground_class_index=2):
 #     if not three_d:
@@ -277,40 +336,4 @@ def save_test_predictions_as_imgs(
 
 #     return calc_seg
 
-def separate_masks(instance_mask):
-    unique_labels = np.unique(instance_mask)
-    unique_labels = unique_labels[unique_labels != 0]  # Remove background label if present
-
-    binary_masks = []
-
-    for label in unique_labels:
-        binary_mask = np.zeros_like(instance_mask)
-        binary_mask[instance_mask == label] = 1
-        binary_masks.append(binary_mask)
-
-    return binary_masks
-
-
-def calc_SEG_measure(pred_labels_mask, gt_labels_mask):
-    # separete labels masks to binary masks
-    binary_masks_predicted = separate_masks(pred_labels_mask)
-    binary_masks_gt = separate_masks(gt_labels_mask)
-
-    SEG_measure_array = np.zeros(len(binary_masks_gt))
-    if not binary_masks_predicted:
-        return 0, SEG_measure_array
-    for i, r in enumerate(binary_masks_gt):
-        # find match |R and S| > 0.5|R|
-        for s in binary_masks_predicted:
-            r_and_s = np.logical_and(r, s)
-            if np.sum(r_and_s) > 0.5 * np.sum(r):
-                # match !
-                break
-
-        # calc Jaccard similarity index
-        j_similarity = np.sum(r_and_s) / np.sum(np.logical_or(r, s))
-        SEG_measure_array[i] = j_similarity
-
-    SEG_measure_avg = np.average(SEG_measure_array)
-    return SEG_measure_avg, SEG_measure_array
 

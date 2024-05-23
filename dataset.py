@@ -22,7 +22,7 @@ class Fluo_N2DH_SIM_PLUS(Dataset):
     def __getitem__(self, index):
         if self.mask_dir is not None:
             img_path = os.path.join(self.image_dir, self.images[index])
-            mask_path = os.path.join(self.mask_dir, self.images[index].replace("t", "mask", 1))
+            mask_path = os.path.join(self.mask_dir, self.images[index].replace("t", "man_seg", 1))
             image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
             if len(image.shape) == 2:  # (height, width)
                 image = np.expand_dims(image, axis=-1)
@@ -41,15 +41,15 @@ class Fluo_N2DH_SIM_PLUS(Dataset):
             image = augmentations["image"]
             mask = augmentations["mask"]
             return image, mask
-        else:
-            img_path = os.path.join(self.image_dir, self.images[index])
-            image = np.array(Image.open(img_path).convert("RGB"))
-
-            if self.transform is not None:
-                augmentations = self.transform(image=image)
-                image = augmentations["image"]
-
-            return image
+        # else:
+        #     img_path = os.path.join(self.image_dir, self.images[index])
+        #     image = np.array(Image.open(img_path).convert("RGB"))
+        #
+        #     if self.transform is not None:
+        #         augmentations = self.transform(image=image)
+        #         image = augmentations["image"]
+        #
+        #     return image
     @staticmethod
     def detect_edges(mask, threshold=0.25):
         # Compute the gradients along rows and columns
@@ -87,11 +87,11 @@ def get_train_transform(crop_size, resize):
     train_transform = A.Compose(
         [
             A.ToFloat(max_value=65535.0),
-            A.Rotate(limit=35, p=1.0),
+            # A.Rotate(limit=35, p=1.0),
             A.RandomCrop(height=crop_size, width=crop_size),
             A.Resize(height=resize, width=resize),
             A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.1),
+            A.VerticalFlip(p=0.5),
             A.Normalize(mean=[0.0], std=[1.0], ),
             # A.FromFloat(max_value=65535.0),
             # A.Lambda(image=lambda x, **kwargs: x.astype(np.float32)),
@@ -115,25 +115,25 @@ def get_val_transform(resize):
     return val_transform
 
 
-import matplotlib.pyplot as plt
-def plot_img_befor_transform(image):
-    image = image.astype(np.float32) / np.iinfo(np.uint16).max
-    plt.imshow(image, cmap='gray')
-    plt.show()
-
-def plot_img_after_transform(image, mask):
-    fig, axs = plt.subplots(1, len(image), figsize=(15, 5))
-    fig2, axs2 = plt.subplots(1, len(mask), figsize=(15, 5))
-    for i, image in enumerate(image):
-        axs[i].imshow(image.squeeze()/torch.max(image), cmap='gray')
-        axs[i].axis("off")
-        print(f"min{i}: {torch.min(image)}, max{i}: {torch.max(image)}")
-    for i, mask in enumerate(mask):
-        axs2[i].imshow(mask.squeeze(), cmap='gray')
-        axs2[i].axis("off")
-        print(f"mask-min{i}: {torch.min(image)}, max{i}: {torch.max(image)}")
-
-    plt.show()
+# import matplotlib.pyplot as plt
+# def plot_img_befor_transform(image):
+#     image = image.astype(np.float32) / np.iinfo(np.uint16).max
+#     plt.imshow(image, cmap='gray')
+#     plt.show()
+#
+# def plot_img_after_transform(image, mask):
+#     fig, axs = plt.subplots(1, len(image), figsize=(15, 5))
+#     fig2, axs2 = plt.subplots(1, len(mask), figsize=(15, 5))
+#     for i, image in enumerate(image):
+#         axs[i].imshow(image.squeeze()/torch.max(image), cmap='gray')
+#         axs[i].axis("off")
+#         print(f"min{i}: {torch.min(image)}, max{i}: {torch.max(image)}")
+#     for i, mask in enumerate(mask):
+#         axs2[i].imshow(mask.squeeze(), cmap='gray')
+#         axs2[i].axis("off")
+#         print(f"mask-min{i}: {torch.min(image)}, max{i}: {torch.max(image)}")
+#
+#     plt.show()
 
 
 
