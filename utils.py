@@ -33,20 +33,29 @@ def load_checkpoint(checkpoint, model):
         print(f"Error: Failed to load checkpoint - {str(e)}")
 
 
+def custom_collate_fn(batch):
+    # batch is a list of tuples (images, masks)
+    # images and masks are of shape (in_batch, C, H, W)
+
+    images = torch.cat([item[0] for item in batch], dim=0)  # Concatenate along the first dimension
+    masks = torch.cat([item[1] for item in batch], dim=0)  # Concatenate along the first dimension
+
+    return images, masks
+
 def get_loader(
         dir,
         maskdir,
         train_aug,
         shuffle,
         batch_size,
-        resize,
+        crop_size,
         num_workers=0,
         pin_memory=True
 ):
     ds = Fluo_N2DH_SIM_PLUS(
         image_dir=dir,
         mask_dir=maskdir,
-        resize=resize,
+        crop_size=crop_size,
         train_aug=train_aug
     )
 
@@ -56,7 +65,8 @@ def get_loader(
         num_workers=num_workers,
         pin_memory=pin_memory,
         shuffle=shuffle,
-        drop_last=True
+        drop_last=True,
+        collate_fn=custom_collate_fn,
     )
 
     return loader
@@ -69,23 +79,27 @@ def get_cell_instances(input_np):
     return labeled  # , np.array(max_num).astype(np.float32)
 
 
-def check_accuracy(loader, model, device="cuda"):
+def check_accuracy(loader, model, device="cuda", one_image=False):
     print("=> Checking accuracy")
-    loader = tqdm(loader) #todo todelete
+    loader = tqdm(loader)
     seg = 0
     num_iters = 0
     model.eval()
     with torch.no_grad():
         for x, y in loader:
             preds = model(x.to(device))
-            predicted_classes = predict_classes(preds)
-            predicted_classes = predicted_classes.cpu().numpy()
+            predicted_classes = predict_classes(preds).cpu().numpy()  # predict the class 0/1/2
             gt = y.numpy()
             for i in range(predicted_classes.shape[0]):
                 pred_labels_mask = get_cell_instances(predicted_classes[i])
                 accuracy, _ = calc_SEG_measure(pred_labels_mask, gt[i])
                 seg += accuracy
                 num_iters += 1
+                if one_image:
+                    print(f"seg score for one image: {seg / num_iters}")
+                    model.train()
+                    return
+
     print(f"seg score: {seg / num_iters}")
     model.train()
 
@@ -109,8 +123,6 @@ def apply_color_map(input_tensor):
 
 def predict_classes(preds):
     preds_softmax = F.softmax(preds, dim=1)  # Apply softmax along the class dimension
-    # print(f"preds:\n\{preds}\n\n")
-    # Convert softmax probabilities to class predictions (integer values)
     _, predicted_classes = torch.max(preds_softmax, dim=1)  # Get the index of the maximum probability
     return predicted_classes
 
