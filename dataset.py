@@ -113,7 +113,7 @@ class Fluo_N2DH_SIM_PLUS(Dataset):
                 return TF.vflip(image), TF.vflip(mask)
             return image, mask
 
-        def random_crop(image, mask, num_crops=10, threshold=500, crop_size=128):
+        def random_crop(image, mask, crop_size, num_crops=10, threshold=500):
             # image, mask are PIL
             count = 0
             images = np.zeros((num_crops, crop_size, crop_size), dtype=np.float32)
@@ -258,18 +258,7 @@ def split_mask(mask):
     return three_classes_mask
 
 
-def get_transform():
-    def rotate(image, mask, p=0.5, max_degrees=45):
-        if random.random() < p:
-            degrees = random.uniform(-max_degrees, max_degrees)
-            height, width = image.shape[:2]
-            center = (width // 2, height // 2)
-            matrix = cv2.getRotationMatrix2D(center, degrees, 1.0)
-            image_rotated = cv2.warpAffine(image, matrix, (width, height), flags=cv2.INTER_LINEAR)
-            mask_rotated = cv2.warpAffine(mask, matrix, (width, height), flags=cv2.INTER_NEAREST)
-            return image_rotated, mask_rotated
-        return image, mask
-
+def get_transform(train_aug):
     def affine(image, mask, p=0.5, max_degrees=45, max_scale=0.2, max_shear=10):
         if random.random() < p:
             degrees = random.uniform(-max_degrees, max_degrees)
@@ -277,9 +266,9 @@ def get_transform():
             scale += 1
             shear_x = random.uniform(-max_shear, max_shear)
             shear_y = random.uniform(-max_shear, max_shear)
-            print(f"degrees: {degrees:.3f},scale: {scale:.3f}, shear_x: {shear_x:.3f}, shear_y: {shear_y:.3f}")
             aff_image = TF.affine(image, angle=degrees, translate=(0, 0), scale=scale, shear=(shear_x, shear_y))
             aff_mask = TF.affine(mask, angle=degrees, translate=(0, 0), scale=scale, shear=(shear_x, shear_y))
+            print(f"angle= {degrees:.2f}, scale= {scale:.2f}, shear=({shear_x:.2f}, {shear_y:.2f})")
             return aff_image, aff_mask
         return image, mask
 
@@ -293,10 +282,7 @@ def get_transform():
             return TF.vflip(image), TF.vflip(mask)
         return image, mask
 
-    def random_crop(image, mask, num_crops=10, threshold=500, crop_size=128):
-        # image = np.expand_dims(image, axis=0)
-        # mask = np.expand_dims(mask, axis=0)
-        # return image, mask
+    def random_crop(image, mask, crop_size, num_crops=10, threshold=500):
         # image, mask are PIL
         count = 0
         images = np.zeros((num_crops, crop_size, crop_size), dtype=np.float32)
@@ -317,7 +303,7 @@ def get_transform():
         # Convert batch of images and masks to PyTorch tensors (batch_size, C, H, W)
         batch_size = images.shape[0]
         tensor_images = torch.zeros((batch_size, 1, images.shape[1], images.shape[2]), dtype=torch.float32)
-        tensor_masks = torch.zeros((batch_size, 1, masks.shape[1], masks.shape[2]), dtype=torch.float32)
+        tensor_masks = torch.zeros((batch_size, masks.shape[1], masks.shape[2]), dtype=torch.float32)
 
         for i in range(batch_size):
             tensor_images[i] = transforms.ToTensor()(images[i])
@@ -326,7 +312,9 @@ def get_transform():
         return tensor_images, tensor_masks
 
     def val_to_tensor(image, mask):
-        if len(image.shape) == 2:
+        # Convert  images and masks to PyTorch tensors (1, 1, H, W)
+        # input (H, W)
+        if len(image.shape) == 2:  # Grayscale image
             image = np.expand_dims(image, axis=0)
 
         image = np.expand_dims(image, axis=0)
@@ -337,14 +325,19 @@ def get_transform():
         return tensor_image, tensor_mask
 
     def transform(image, mask):
-        # image, mask = rotate(image, mask, p=0.5)
+        if train_aug:
+            image, mask = Image.fromarray(image), Image.fromarray(mask)
+            image, mask = affine(image, mask, p=1, max_degrees=45, max_scale=0.2, max_shear=10)
+            image, mask = horizontal_flip(image, mask, p=1)
+            image, mask = vertical_flip(image, mask, p=1)
+            image, mask = random_crop(image, mask, crop_size=256)
+            image, mask = to_tensor(np.array(image), np.array(mask))
+            return {'image': image, 'mask': mask}
         image, mask = Image.fromarray(image), Image.fromarray(mask)
-        image, mask = affine(image, mask, p=1, max_degrees=45, max_scale=0.2, max_shear=10)
-        # image, mask = horizontal_flip(image, mask, p=0.5)
-        # image, mask = vertical_flip(image, mask, p=0.5)
-        image, mask = random_crop(image, mask)
-        image, mask = to_tensor(np.array(image), np.array(mask))
-        # image, mask = val_to_tensor(image, mask)
+        # image, mask = affine(image, mask, p=1, max_degrees=45, max_scale=0.2, max_shear=10)
+        # image, mask = horizontal_flip(image, mask, p=1)
+        image, mask = vertical_flip(image, mask, p=1)
+        image, mask = val_to_tensor(np.array(image), np.array(mask))
         return {'image': image, 'mask': mask}
 
     return transform
@@ -368,6 +361,7 @@ def get_instance_color(image):
 
 
 def t_transform_and_cell_size():
+    train_aug = True
     # get mask
     mask_path = "/mnt/tmp/data/users/thomasm/Fluo-N2DH-SIM+/02_GT/SEG/man_seg140.tif"
     img_path = "/mnt/tmp/data/users/thomasm/Fluo-N2DH-SIM+/02/t140.tif"
@@ -381,23 +375,32 @@ def t_transform_and_cell_size():
     # gt = mask.astype(np.uint8)
     # colored_instance_gt = get_instance_color(gt)
     # plt.figure()
-    # plt.imshow(colored_instance_gt)
+    # plt.imshow(image)
     # plt.axis('off')  # Hide axes
-    # plt.title('original mask')
+    # plt.title('original image')
     # plt.show()
 
-    transform = get_transform()
+    transform = get_transform(train_aug)
     augmentations = transform(image=image, mask=mask)
-    image = augmentations["image"]
+    image = augmentations["image"].cpu().numpy()
     mask = augmentations["mask"]
-    gt = mask.cpu().numpy().astype(np.uint8)
-    for i in range(5):
-        colored_instance_gt = get_instance_color(gt[i,0])
+    if train_aug:
+        gt = mask.cpu().numpy().astype(np.uint8)
+        for i in range(5):
+            colored_instance_gt = get_instance_color(gt[i,0])
+            plt.figure()
+            # plt.imshow(colored_instance_gt)
+            plt.imshow(image[i, 0])
+            plt.axis('off')  # Hide axes
+            plt.title('all aug image')
+            plt.show()
+    else:
         plt.figure()
-        plt.imshow(colored_instance_gt)
+        plt.imshow(image[0, 0])
         plt.axis('off')  # Hide axes
-        plt.title('affine mask')
+        plt.title('v_flip image')
         plt.show()
+
 
 
     # # find cell size
@@ -407,5 +410,6 @@ def t_transform_and_cell_size():
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+
 
     t_transform_and_cell_size()

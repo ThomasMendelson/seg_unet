@@ -103,7 +103,34 @@ def check_accuracy(loader, model, device="cuda", one_image=False):
     print(f"seg score: {seg / num_iters}")
     model.train()
 
+def check_accuracy_multy_models(loader, models, device="cuda", one_image=False):
+    print("=> Checking accuracy")
+    loader = tqdm(loader)
+    seg = 0
+    num_iters = 0
+    for model in models:
+        model.eval()
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device)
+            model_preds = [model(x) for model in models]
+            preds = torch.mean(torch.stack(model_preds), dim=0)
+            predicted_classes = predict_classes(preds).cpu().numpy()  # predict the class 0/1/2
+            gt = y.numpy()
+            for i in range(predicted_classes.shape[0]):
+                pred_labels_mask = get_cell_instances(predicted_classes[i])
+                accuracy, _ = calc_SEG_measure(pred_labels_mask, gt[i])
+                seg += accuracy
+                num_iters += 1
+                if one_image:
+                    print(f"seg score for avg models and one image: {seg / num_iters}")
+                    for model in models:
+                        model.train()
+                    return
 
+    print(f"seg score for avg models : {seg / num_iters}")
+    for model in models:
+        model.train()
 def apply_color_map(input_tensor):
     if input_tensor.dim() == 2:
         input_tensor = input_tensor.unsqueeze(0)  # Add batch dimension if single image
