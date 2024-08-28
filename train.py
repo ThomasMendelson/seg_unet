@@ -1,20 +1,12 @@
-import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import wandb
-import numpy as np
 from tqdm import tqdm
-from PIL import Image
-
-# import albumentations as A
 from model import UNET
-# from albumentations.pytorch import ToTensorV2
 from dataset import Fluo_N2DH_SIM_PLUS
 
-import torchvision
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+
 
 from utils import (
     load_checkpoint,
@@ -24,32 +16,25 @@ from utils import (
     check_accuracy_multy_models,
     save_predictions_as_imgs,
     save_instance_by_colors,
-    save_test_predictions_as_imgs,
-    apply_color_map,
 )
 
 # Hyperparameters
-LEARNING_RATE = 1e-5
-WEIGHT_DECAY = 1e-4
+LEARNING_RATE = 1e-4
+WEIGHT_DECAY = 1e-3
 L1_LAMBDA = 1e-5
-DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 4
+DEVICE = "cuda:3" if torch.cuda.is_available() else "cpu"
+BATCH_SIZE = 2
 NUM_EPOCHS = 120
 NUM_WORKERS = 2
 CROP_SIZE = 256
-CLASS_WEIGHTS = [0.1, 0.7, 0.2]  #  [0.15, 0.6, 0.25]#   # [0.1, 0.6, 0.3]   # [0.15, 0.6, 0.25]
+CLASS_WEIGHTS = [0.1, 0.7, 0.2]  # [0.1, 0.6, 0.3] [0.15, 0.6, 0.25]
 PIN_MEMORY = False
 LOAD_MODEL = False
-WANDB_TRACKING = True
+WANDB_TRACKING = False
 TRAIN_IMG_DIR = "/mnt/tmp/data/users/thomasm/Fluo-N2DH-SIM+/02"  # "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/02"
 TRAIN_MASK_DIR = "/mnt/tmp/data/users/thomasm/Fluo-N2DH-SIM+/02_GT/SEG"  # "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/02_ERR_SEG"
 VAL_IMG_DIR = "/mnt/tmp/data/users/thomasm/Fluo-N2DH-SIM+/01"  # "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/01"
 VAL_MASK_DIR = "/mnt/tmp/data/users/thomasm/Fluo-N2DH-SIM+/01_GT/SEG"  # "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/01_ERR_SEG"
-
-# VAL_IMG_DIR = "/mnt/tmp/data/users/thomasm/Fluo-N2DH-SIM+/02"  # "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/02"
-# VAL_MASK_DIR = "/mnt/tmp/data/users/thomasm/Fluo-N2DH-SIM+/02_GT/SEG"  # "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/02_ERR_SEG"
-# TRAIN_IMG_DIR = "/mnt/tmp/data/users/thomasm/Fluo-N2DH-SIM+/01"  # "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/01"
-# TRAIN_MASK_DIR = "/mnt/tmp/data/users/thomasm/Fluo-N2DH-SIM+/01_GT/SEG"  # "Fluo-N2DH-SIM+_training-datasets/Fluo-N2DH-SIM+/01_ERR_SEG"
 
 
 def calculate_l1_loss(model):
@@ -107,7 +92,7 @@ def evaluate_fn(loader, model, loss_fn):
 
 def main():
     if WANDB_TRACKING:
-        wandb.login(key="12b9b358323faf2af56dc288334e6247c1e8bc63")
+        wandb.login(key="")
         wandb.init(project="seg_unet",
                    config={
                        "epochs": NUM_EPOCHS,
@@ -184,18 +169,23 @@ def t_acc():
 
 
 def t_acc_mul_models():
+    model = UNET(in_channels=1, out_channels=3).to(DEVICE)
+    load_checkpoint(torch.load("checkpoint/my_checkpoint_0.838.pth.tar", map_location=torch.device(DEVICE)), model)
+
     model1 = UNET(in_channels=1, out_channels=3).to(DEVICE)
-    load_checkpoint(torch.load("checkpoint/my_checkpoint1.pth.tar", map_location=torch.device(DEVICE)), model1)
+    load_checkpoint(torch.load("checkpoint/my_checkpoint_0.82.pth.tar", map_location=torch.device(DEVICE)), model1)
 
     model2 = UNET(in_channels=1, out_channels=3).to(DEVICE)
-    load_checkpoint(torch.load("checkpoint/my_checkpoint2.pth.tar", map_location=torch.device(DEVICE)), model2)
+    load_checkpoint(torch.load("checkpoint/my_checkpoint1.pth.tar", map_location=torch.device(DEVICE)), model2)
 
     test_check_accuracy_loader = get_loader(dir=VAL_IMG_DIR, maskdir=VAL_MASK_DIR, train_aug=False, shuffle=True,
                                             batch_size=1, crop_size=CROP_SIZE, num_workers=NUM_WORKERS,
                                             pin_memory=PIN_MEMORY)
+    check_accuracy_multy_models(test_check_accuracy_loader, [model], device=DEVICE, one_image=False)
     check_accuracy_multy_models(test_check_accuracy_loader, [model1], device=DEVICE, one_image=False)
     check_accuracy_multy_models(test_check_accuracy_loader, [model2], device=DEVICE, one_image=False)
-    check_accuracy_multy_models(test_check_accuracy_loader, [model1, model2], device=DEVICE, one_image=False)
+    check_accuracy_multy_models(test_check_accuracy_loader, [model, model1], device=DEVICE, one_image=False)
+    check_accuracy_multy_models(test_check_accuracy_loader, [model, model1, model2], device=DEVICE, one_image=False)
 
 
 
